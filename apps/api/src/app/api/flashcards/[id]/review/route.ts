@@ -1,0 +1,68 @@
+import { db } from "../../../../../db";
+import { NextResponse } from "next/server";
+import { flashcards } from "../../../../../db/schema";
+import { env } from "../../../../../lib/env";
+import { eq } from "drizzle-orm";
+import { calculateSM2 } from "../../../../../lib/sm2";
+
+
+export async function POST(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const userId = request.headers.get("x-user-id");
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const cardId = params.id;
+    const body = await request.json();
+    let { rating } = body; // 0, 1, 2, 3 or 'again', 'hard', 'good', 'easy'
+
+    if (typeof rating === "string") {
+      const lower = rating.toLowerCase();
+      if (lower === "again") rating = 0;
+      else if (lower === "hard") rating = 1;
+      else if (lower === "good") rating = 2;
+      else if (lower === "easy") rating = 3;
+    }
+
+    if (rating === undefined || typeof rating !== "number" || rating < 0 || rating > 3) {
+      return NextResponse.json({ error: "rating must be 0, 1, 2, or 3, or a valid rating string" }, { status: 400 });
+    }
+
+    const cards = await db.select().from(flashcards).where(eq(flashcards.id, cardId)).limit(1);
+    const card = cards[0] as any;
+    if (!card || card.userId !== userId) {
+      return NextResponse.json({ error: "Flashcard not found" }, { status: 404 });
+    }
+
+    const { intervalDays, easeFactor, dueDate } = calculateSM2(
+      rating,
+      card.intervalDays || 1,
+      card.easeFactor || 2.5
+    );
+
+    const isCorrect = rating > 0;
+    const reviewCount = (card.reviewCount || 0) + 1;
+    // rough running average approximation
+    const prevCorrect = (card.correctRecallRate || 0) * (reviewCount - 1);
+    const correctRecallRate = (prevCorrect + (isCorrect ? 1 : 0)) / reviewCount;
+
+    const updated = await db.update(flashcards)
+      .set({
+        intervalDays,
+        easeFactor,
+        dueDate: dueDate.toISOString(),
+        reviewCount,
+        correctRecallRate,
+        lastReviewedAt: new Date(),
+      })
+      .where(eq(flashcards.id, cardId))
+      .returning();
+
+    return NextResponse.json({ flashcard: updated[0] }, { status: 200 });
+  } catch (error) {
+    console.error("POST flashcard review error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

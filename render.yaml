@@ -1,0 +1,29 @@
+services:
+  # ── Unified Monolith Service (Next.js API + Vite React SPA) ─────────────────
+  # Serves both backend API routes (/api/*) and the frontend SPA from a single port/domain.
+  - type: web
+    name: cognora
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: pnpm install --no-frozen-lockfile --prod=false && pnpm run build
+    startCommand: pnpm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      - key: COHERE_API_KEY
+        sync: false
+      - key: GOOGLE_AI_API_KEY
+        sync: false
